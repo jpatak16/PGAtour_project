@@ -8,7 +8,7 @@ pacman::p_load(rvest, tidyverse, memoise)
 
 
 #place the tournament IDs that you want to scrape in this vector
-ids = c(400:500)
+ids = c()
 
 #some of our IDs will not exist, and so we will create a function that will help us determine whether or not there is a tournament to webscrape for a give ID
 #this function is later used within our main webscraping function
