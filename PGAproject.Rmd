@@ -6,7 +6,11 @@ output: html_document
 ---
 ```{r setup}
 pacman::p_load(tidyverse)
+data = read.csv('all_tourn.csv')
 ```
+
+
+# Data Manipulation
 
 ```{r}
 
