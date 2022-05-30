@@ -12,6 +12,32 @@ data = read.csv('all_tourn.csv')
 
 # Data Manipulation
 
-```{r}
+```{r cleaning}
+#assign a tournament ID to each individual tournament 
+data = data %>% 
+  group_by(start_date, tournament) %>% 
+  mutate(TID = paste(str_replace(str_replace_all(start_date, '-', ''), '20', ''), 
+                     gsub("[[:digit:]]", "", str_replace(abbreviate(tournament), '-', '')),
+                     sep = ''))
 
+#there are only 4 tournaments in our entire data set that have scores in the 5th round
+#we will get rid of them since it is a very small portion of our sample and makes our data tougher to work with
+data = data[,-10]
+
+#assign a finishing position for all players who were cut
+pos_col = c()
+for(i in 1:length(unique(data$TID))){
+  tids = unique(data$TID) #get all TIDs
+  one_t = data %>% filter(TID == tids[i]) #get a df with a single tournament 
+  tpc = one_t$position #column of positions in single tournament
+  max = max(tpc, na.rm = TRUE) #highest position of players who made the cut
+  miss_cut = one_t %>% filter(is.na(position)) %>% arrange(score) #df with players who missed the cut
+  #assigns those players a finish position
+  if(length(miss_cut$position) > 0){miss_cut$position = seq(max+1, max+length(miss_cut$position))}
+  make_cut = one_t %>% filter(!is.na(position)) %>% arrange(score) #df with players who made the cut
+  one_t = rbind(make_cut, miss_cut) #combines make and missed cut groups back together
+  pos = one_t$position #extracts the new pos column from the single tournament 
+  pos_col = append(pos_col, pos) #appends the new pos column to all other pos columns
+}
+data$position = pos_col
 ```
