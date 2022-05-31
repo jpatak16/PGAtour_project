@@ -11,6 +11,7 @@ ids = c(411:459, 526:628, 764:846, 892:988, 996:1152, 1181:1220, 1306:1351, 2230
         401219481:401219501, 401223553, 401223829, 401230732, 401231117:401231118, 401219793:401219802, 401219333:401219480, 
         401256493, 401242996:401243012, 401243401:401243433, 401317529, 401353193:401353294, 401366873)
 
+
 #some of our IDs will not exist (since we are grabbing a convinient range instead of individually putting in each ID)
 #so we will create a function that will help us determine whether or not there is a tournament to webscrape for a given ID
 #this function is later used within our main webscraping function
@@ -84,8 +85,9 @@ scrape_espn_pga = function(id){
     #some pages don't have the weird first column we account for in the next step, so we make one for it
     if(colnames(x)[1]=='POS'){x = add_column(x, col1='', .before = 1)}
     
-    #some tournamnets are lacking most/all round scores. we wont include those
+    #some tournaments are lacking most/all round scores. we wont include those
     if(ncol(x) < 10){next}
+    if((sum(ifelse(x[,5] == '--' | is.na(x[,5]), 1, 0))/nrow(x))>.9){next}
     
     #some tournament pages pulled things that we dont want. This section eliminates those things
     colnames(x)[1] = 'col1'
@@ -94,6 +96,10 @@ scrape_espn_pga = function(id){
     x = x[,-1]
     if(ncol(x)==26){x = x[-seq(11,22)]}
     if(ncol(x)==27){x = x[-seq(12,23)]}
+    
+    #accounts for 3 round tournaments
+    x[[1]] = str_replace(x[[1]], 'T', '') %>% as.numeric()
+    if(as.numeric(x[order(x[[1]]),][3,7]) >100){x = add_column(x, R4 = NA, .after = 6)}
     
     #some tournaments had one less round column, so we added a round column for those that need it
     if(ncol(x) <= 14){x = add_column(x, R5 = NA, .after = 7)}
@@ -127,6 +133,7 @@ scrape_espn_pga = function(id){
     for(col in 6:13){x[[col]] = as.numeric(x[[col]])}
     date1 = str_split(x$start_date, ' - ')[[1]][1] ; date2 = str_split(x$start_date, ' - ')[[1]][2] ; date2 = str_split(date2, ', ')[[1]][2]
     x$start_date = mdy(paste(date1, date2, sep = ', '))
+    x = x %>% arrange(position)
     
     #add the rows for the single tournament df into the df for all tournaments
     all_tourney = rbind(all_tourney, x)
