@@ -11,7 +11,6 @@ ids = c(411:459, 526:628, 764:846, 892:988, 996:1152, 1181:1220, 1306:1351, 2230
         401219481:401219501, 401223553, 401223829, 401230732, 401231117:401231118, 401219793:401219802, 401219333:401219480, 
         401256493, 401242996:401243012, 401243401:401243433, 401317529, 401353193:401353294, 401366873)
 
-
 #some of our IDs will not exist (since we are grabbing a convinient range instead of individually putting in each ID)
 #so we will create a function that will help us determine whether or not there is a tournament to webscrape for a given ID
 #this function is later used within our main webscraping function
@@ -23,7 +22,7 @@ progress_bar = txtProgressBar(min=0, max=length(ids), style = 3, char="=")
 scrape_espn_pga = function(id){
   #create empty df with the column that we want
   all_tourney = data.frame(position = NA, player = NA, score = NA, cut=NA, withdraw=NA, R1 = NA, R2 = NA, R3= NA, R4=NA, R5 = NA,
-                         total = NA, earnings = NA, fedex_points = NA, tournament = NA, start_date = NA, location = NA, course = NA, fedex_cup_event = NA)[-1,]
+                         total = NA, earnings = NA, fedex_points = NA, tournament = NA, start_date = NA, location = NA, course = NA, par = NA, length = NA, fedex_cup_event = NA)[-1,]
   for(i in 1:length(id)){
     #be nice to the server
     Sys.sleep(2)
@@ -114,7 +113,7 @@ scrape_espn_pga = function(id){
     #some listed PGA events are not part of the fedex cup 
     #these include fall series events before the 2013-14 season and some other unofficial pga events in any season
     if(ncol(x)==14){x = add_column(x, fedex_points = 'fs', .after = 10)}
-    colnames(x) = colnames(all_tourney)[-c(4,5,18)]
+    colnames(x) = colnames(all_tourney)[-c(4,5,18,19,20)]
     x$fedex_cup_event = ifelse(x$fedex_points == 'fs', FALSE, TRUE)
     x$fedex_points = ifelse(x$fedex_points == 'fs', NA, x$fedex_points)
     
@@ -123,7 +122,7 @@ scrape_espn_pga = function(id){
     x = add_column(x, withdraw = ifelse(x$score == 'WD', TRUE, FALSE), .after = 4)
     
     #matches column names of single tourney to our main df
-    colnames(x) = colnames(all_tourney)
+    colnames(x) = colnames(all_tourney)[-c(18, 19)]
     
     #converts columns/data into usable class types
     x$player = as.character(paste(x$player, '', sep=''))
@@ -133,6 +132,21 @@ scrape_espn_pga = function(id){
     for(col in 6:13){x[[col]] = as.numeric(x[[col]])}
     date1 = str_split(x$start_date, ' - ')[[1]][1] ; date2 = str_split(x$start_date, ' - ')[[1]][2] ; date2 = str_split(date2, ', ')[[1]][2]
     x$start_date = mdy(paste(date1, date2, sep = ', '))
+    
+    #Update: add webscraping for par and length of course
+    p = read_html(url_id) %>%
+      html_node('#fittPageContainer > div:nth-child(4) > div > div.PageLayout__Main > section:nth-child(1) > div > div > div.flex.justify-between.items-center > div > div.Leaderboard__Course__Detail > div.Leaderboard__Course__Location__Detail.n8.clr-gray-04') %>%
+      html_text() %>%
+      str_split('Y')
+    p = p[[1]][1] %>% str_replace('Par', '') %>% as.numeric()
+    len = read_html(url_id) %>%
+      html_node('#fittPageContainer > div:nth-child(4) > div > div.PageLayout__Main > section:nth-child(1) > div > div > div.flex.justify-between.items-center > div > div.Leaderboard__Course__Detail > div.Leaderboard__Course__Location__Detail.n8.clr-gray-04') %>%
+      html_text() %>%
+      str_split('Y')
+    len = len[[1]][2] %>% str_replace('ards', '') ; len = as.numeric(len)
+    x$par = p ; x$length = len ; x = x %>% select(colnames(all_tourney))
+    
+    #sort
     x = x %>% arrange(position)
     
     #add the rows for the single tournament df into the df for all tournaments
