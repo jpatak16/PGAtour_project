@@ -29,8 +29,10 @@ pos_col = c()
 for(i in 1:length(unique(data$TID))){
   tids = unique(data$TID) #get all TIDs
   one_t = data %>% filter(TID == tids[i]) #get a df with a single tournament 
-  tpc = one_t$position #column of positions in single tournament
-  max = max(tpc, na.rm = TRUE) #highest position of players who made the cut
+  mdfs = one_t %>% filter(position==999) %>% nrow() #how many players recorded an MDF
+  tpc = one_t$position ; tpc = tpc[tpc!=999]#column of positions in single tournament
+  max = max(tpc, na.rm = TRUE) + mdfs #highest position of players who made the cut
+  one_t$position = ifelse(one_t$position==999, max, one_t$position)
   miss_cut = one_t %>% filter(is.na(position)) %>% arrange(score) #df with players who missed the cut
   #assigns those players a finish position
   if(length(miss_cut$position) > 0){miss_cut$position = seq(max+1, max+length(miss_cut$position))}
@@ -40,4 +42,14 @@ for(i in 1:length(unique(data$TID))){
   pos_col = append(pos_col, pos) #appends the new pos column to all other pos columns
 }
 data$position = pos_col
+rm(make_cut, miss_cut, one_t, i, max, mdfs, pos, pos_col, tids, tpc)
+
+#remove tournaments where players played on teams / with partners
+data = data %>% filter(grepl('/', player)==FALSE)
+
+#remove amateur tag from player name
+data$player = ifelse(substr(data$player, nchar(data$player) - 3, nchar(data$player)) == " (a)", 
+                     substr(data$player, 1, nchar(data$player) -4), data$player)
+
+
 ```
