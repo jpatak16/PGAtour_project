@@ -4,18 +4,31 @@ author: "Jeremy Patak"
 date: '2022-05-13'
 output: html_document
 ---
-```{r setup}
-pacman::p_load(tidyverse)
+```{r setup, echo=FALSE}
+pacman::p_load(tidyverse, knitr, kableExtra)
+options(width = 100)
 data = read.csv('all_tourn.csv')
 ```
 
+# Introduction
 
-# Data Manipulation
+The Masters Tournament is one of four majors on the PGA Tour each year, and widely considered the biggest and best golf tournament in the world. I wanted to see if I could predict the results of that tournament using data science. The most common gambling bets you can make in golf are tournament winner, top-10 finisher, and making/missing the cut, so I decided these would be the things I try to predict. One of my questions will be if any of these three outcomes are easier or harder to predict than the others. I also am interested in what features are best at predicting these outcomes. 
 
-```{r}
+# Data
 
+To get my data, I webscraped the PGA Tour leaderboards from [ESPN's website](https://www.espn.com/golf/leaderboard). Each tournament was a different webpage, and I aggregated those pages into one csv that I loaded into this notebook. I collected all the individual tournaments from each of the past 15 seasons (starting in the 2008 season until present day). The table below is a random sample preview of how the collected data looks. You can look at my [GitHub repo](https://github.com/jpatak16/PGAtour_project) for this project to see more details about how the data was scraped. 
+
+```{r, echo=FALSE}
+set.seed(3)
+data[sample(1:nrow(data)), ] %>% head(n=5)%>%
+  kable('html', row.names = FALSE) %>% kable_styling('striped') %>% scroll_box(width = '100%')
 ```
 
+Since I am trying to make predictions for the yearly Masters Tournament, I need to manipulate this data set into one that I can use to run predictive models on. I need one row for each participant for each year's Masters Tournament, then I will need to create a set of predictors using the data I scraped from ESPN. 
+
+```{r}
+MT_dat = data %>% filter(grepl("Masters", tournament, fixed = TRUE))
 
 
+```
 
