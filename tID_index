@@ -2,6 +2,8 @@ If you are interested in scraping for a given season or list of seasons, refer t
 
 Note: Not every tournament ID is part of the PGA Tour for that given season, but every PGA Tour event for the season is in that range. You can go through and create a vector with only the IDs of PGA events for that season to improve the runtime of the scrape_espn_pga() function, but it would be rather tedious.
 
+
+2007: 297 to 346 and 409
 2008: 411 to 459
 2009: 526 to 628
 2010: 764 to 846

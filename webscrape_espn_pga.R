@@ -7,7 +7,7 @@ pacman::p_load(rvest, tidyverse, memoise, lubridate, data.table)
 #place the tournament IDs that you want to scrape in this vector
 #optimally there is a way to webscrape the same data without having to manually pull the IDs yourself, but I couldn't get the methods I tried to work. Maybe one day I will go back and automate this step
 #tID_index.txt has tournament ID number ranges for the 2008 season to present (as of May 2022)
-ids = c(411:459, 526:628, 764:846, 892:988, 996:1152, 1181:1220, 1306:1351, 2230:2291, 2482:2605, 2689:2730, 3065:3069, 3735, 
+ids = c(297:346, 409:459, 526:628, 764:846, 892:988, 996:1152, 1181:1220, 1306:1351, 2230:2291, 2482:2605, 2689:2730, 3065:3069, 3735, 
         3742:3803, 401025221:401025271, 401056500:401056560, 401056252, 401077167, 401148233:401148245, 401155413:401155476, 
         401219481:401219501, 401223553, 401223829, 401230732, 401231117:401231118, 401219793:401219802, 401219333:401219480, 
         401256493, 401242996:401243012, 401243401:401243433, 401317529, 401353193:401353294, 401366873)
