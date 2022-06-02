@@ -2,6 +2,7 @@ pacman::p_load(rvest, tidyverse, memoise, lubridate, data.table)
 
 # as of May 2022, this script will webscrape individual PGA Tour tournament results from espn.com
 
+### WEBSCRAPE
 
 #place the tournament IDs that you want to scrape in this vector
 #optimally there is a way to webscrape the same data without having to manually pull the IDs yourself, but I couldn't get the methods I tried to work. Maybe one day I will go back and automate this step
@@ -157,6 +158,68 @@ scrape_espn_pga = function(id){
 }
 
 
-all_tourn = scrape_espn_pga(id = ids)
+data = scrape_espn_pga(id = ids)
 
+
+
+### DATA CLEANING
+
+#assign a tournament ID to each individual tournament 
+data = data %>% 
+  group_by(start_date, tournament) %>% 
+  mutate(TID = paste(str_replace(str_replace_all(start_date, '-', ''), '20', ''), 
+                     gsub("[[:digit:]]", "", str_replace(abbreviate(tournament), '-', '')),
+                     sep = ''))
+
+#assign a finishing position for all players who were cut
+pos_col = c()
+for(i in 1:length(unique(data$TID))){
+  tids = unique(data$TID) #get all TIDs
+  one_t = data %>% filter(TID == tids[i]) #get a df with a single tournament 
+  mdfs = one_t %>% filter(position==999) %>% nrow() #how many players recorded an MDF
+  tpc = one_t$position ; tpc = tpc[tpc!=999]#column of positions in single tournament
+  max = max(tpc, na.rm = TRUE) + mdfs #highest position of players who made the cut
+  one_t$position = ifelse(one_t$position==999, max, one_t$position)
+  miss_cut = one_t %>% filter(is.na(position)) %>% arrange(score) #df with players who missed the cut
+  #assigns those players a finish position
+  if(length(miss_cut$position) > 0){miss_cut$position = seq(max+1, max+length(miss_cut$position))}
+  make_cut = one_t %>% filter(!is.na(position)) %>% arrange(score) #df with players who made the cut
+  one_t = rbind(make_cut, miss_cut) #combines make and missed cut groups back together
+  pos = one_t$position #extracts the new pos column from the single tournament 
+  pos_col = append(pos_col, pos) #appends the new pos column to all other pos columns
+}
+data$position = pos_col
+rm(make_cut, miss_cut, one_t, i, max, mdfs, pos, pos_col, tids, tpc)
+
+#remove tournaments where players played on teams / with partners
+data = data %>% filter(grepl('/', player)==FALSE)
+
+#remove amateur tag from player name
+data$player = ifelse(substr(data$player, nchar(data$player) - 3, nchar(data$player)) == " (a)", 
+                     substr(data$player, 1, nchar(data$player) -4), data$player)
+
+#there are a couple tournaments where the score is incorrectly reported as total strokes
+#fix that problem
+data$score = ifelse(data$score==data$total,
+                    data$total - (data$par*(5-(is.na(data$R1) + is.na(data$R2) + is.na(data$R3) + is.na(data$R4) + is.na(data$R5)))),
+                    data$score)
+
+#there are only 4 tournaments in our entire data set that have scores in the 5th round
+#we will get rid of them since it is a very small portion of our sample and makes our data tougher to work with
+data = data[,-10]
+
+#the barracuda championship uses modified scoring that we don't want in our data
+data = data %>% filter(tournament!='Barracuda Championship')
+
+#change earnings format to have no decimals
+data = data %>% mutate(earnings = round(earnings, digits = 0))
+
+#if earnings or fedex points is na, assign it 0
+data$earnings = ifelse(is.na(data$earnings), 0, data$earnings)
+data$fedex_points = ifelse(is.na(data$fedex_points), 0, data$fedex_points)
+
+
+
+
+#now that the data is scraped and cleaned to my liking I will write it as a csv
 fwrite(all_tourn, paste0(getwd(), '/all_tourn.csv'))
