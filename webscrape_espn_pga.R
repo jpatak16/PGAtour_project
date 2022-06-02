@@ -222,4 +222,4 @@ data$fedex_points = ifelse(is.na(data$fedex_points), 0, data$fedex_points)
 
 
 #now that the data is scraped and cleaned to my liking I will write it as a csv
-fwrite(all_tourn, paste0(getwd(), '/all_tourn.csv'))
+fwrite(data, paste0(getwd(), '/all_tourn.csv'))
