@@ -4,7 +4,7 @@ author: "Jeremy Patak"
 date: '2022-05-13'
 output: html_document
 ---
-```{r setup, echo=FALSE}
+```{r setup}
 pacman::p_load(tidyverse, knitr, kableExtra)
 options(width = 100)
 data = read.csv('all_tourn.csv')
@@ -14,21 +14,74 @@ data = read.csv('all_tourn.csv')
 
 The Masters Tournament is one of four majors on the PGA Tour each year, and widely considered the biggest and best golf tournament in the world. I wanted to see if I could predict the results of that tournament using data science. The most common gambling bets you can make in golf are tournament winner, top-10 finisher, and making/missing the cut, so I decided these would be the things I try to predict. One of my questions will be if any of these three outcomes are easier or harder to predict than the others. I also am interested in what features are best at predicting these outcomes. 
 
+I am going to attempt to answer these questions by predicting a mean and variance for each golfer participating in the Masters Tournament, then use those values to run many simulations and see how often each golfer wins, places top 10, and makes the cut.
+
 # Data
 
-To get my data, I webscraped the PGA Tour leaderboards from [ESPN's website](https://www.espn.com/golf/leaderboard). Each tournament was a different webpage, and I aggregated those pages into one csv that I loaded into this notebook. I collected all the individual tournaments from each of the past 15 seasons (starting in the 2008 season until present day). The table below is a random sample preview of how the collected data looks. You can look at my [GitHub repo](https://github.com/jpatak16/PGAtour_project) for this project to see more details about how the data was scraped. 
+To get my data, I webscraped the PGA Tour leaderboards from [ESPN's website](https://www.espn.com/golf/leaderboard). Each tournament was a different webpage, and I aggregated those pages into one csv that I loaded into this notebook. I collected all the individual tournaments from each of the past 16 seasons (starting in the 2007 season until present day). The table below is a random sample preview of how the collected data looks. You can look at my [GitHub repo](https://github.com/jpatak16/PGAtour_project) for this project to see more details about how the data was scraped. 
 
-```{r, echo=FALSE}
+```{r table preview}
+#preview table
 set.seed(3)
 data[sample(1:nrow(data)), ] %>% head(n=5)%>%
   kable('html', row.names = FALSE) %>% kable_styling('striped') %>% scroll_box(width = '100%')
 ```
 
-Since I am trying to make predictions for the yearly Masters Tournament, I need to manipulate this data set into one that I can use to run predictive models on. I need one row for each participant for each year's Masters Tournament, then I will need to create a set of predictors using the data I scraped from ESPN. 
+Since I am trying to make predictions for the yearly Masters Tournament, I need to manipulate this data set into one that I can use to run predictive models on. I need one row for each participant for each year's Masters Tournament, then I will need to create a set of predictors using the data I scraped from ESPN.
 
-```{r}
-MT_dat = data %>% filter(grepl("Masters", tournament, fixed = TRUE))
+The first thing to think about when designing our data set is that we want to predict how golfers do compared to each other, rather than compared to par or total score. This is because due to course difficulty, weather conditions, or any other sort of external variation, a score that is good enough to place top-5 at one tournament may not be good enough to make the cut at the next. Because of this, we want our score variables to be in reference to the field of other golfers.
+
+When calculating these scores, we can compare the player's round score to the mean round score or the median round score. 
+
+```{r mean vs median}
+#create table with means and medians of every round of every tournament in our data
+round_summ = data %>% group_by(TID) %>%
+  summarise(R1mean = mean(R1, na.rm=TRUE), R1med = median(R1, na.rm = TRUE),
+            R2mean = mean(R2, na.rm=TRUE), R2med = median(R2, na.rm = TRUE),
+            R3mean = mean(R3, na.rm=TRUE), R3med = median(R3, na.rm = TRUE),
+            R4mean = mean(R4, na.rm=TRUE), R4med = median(R4, na.rm = TRUE))
+
+#plot relationship between a rounds mean and median
+ggplot(round_summ, aes(R1mean, R1med)) +
+  geom_point() + geom_abline(slope=1, intercept = 0) + geom_smooth(method = 'lm') +
+  xlab('Round 1 Means') + ylab('Round 1 Medians') +
+  scale_x_continuous(limits = c(67,77), breaks = seq(67,77,2)) + 
+  scale_y_continuous(limits = c(67,77), breaks = seq(67,77,2)) +
+  ggtitle('Round Means vs Medians', 
+          subtitle = 'The blue line is a line of best fit. The black line represents where mean=median.')
+```
+
+As you can see in the plot above, they are very closely related to each other, but means tend to be higher estimates than medians. Only Round 1 means/medians are plotted above, but all rounds displayed this same pattern. This suggest that the distribution of scores is slightly skewed towards higher scores. You will see that this is true soon, but for the purposes of generating golfer round scores relative to other golfers, I will use the median since it better accounts for outliers. 
+
+```{r adjust score reference points}
+#change scores in data set to be relative to the rest of the golfers competing in the same round
+data2 = left_join(data, round_summ, by='TID') %>% mutate(R1 = R1 - R1med,
+                                                          R2 = R2 - R2med,
+                                                          R3 = R3 - R3med,
+                                                          R4 = R4 - R4med) %>%
+  select(-c(R1mean, R1med, R2mean, R2med, R3mean, R3med, R4mean, R4med))
 
 
 ```
 
+The next thing we want to consider is whether or not we think that score distributions are statistically similar for each round. I have a good feeling that they are not, because after Round 2 of most tournaments, roughly half of the field is "cut" and do not play the next two rounds. Since the golfer in the middle of the distribution of Rounds 1 & 2 should now theoretically be at the bottom of the distribution in Rounds 3 & 4, it seems like we would want to estimate different scores for them depending what round they are in. 
+
+```{r plot round distributions}
+R12 = append(round_summ$R1med, round_summ$R2med)
+R34 = append(round_summ$R3med, round_summ$R4med)
+
+rd = data.frame(x = 1, R12 = R12, R34 = R34) %>% 
+  pivot_longer(-x, names_to = 'Rounds', values_to = 'Scores') %>%
+  select(-x)
+
+ggplot(rd, aes(x=Scores, fill=Rounds, color = Rounds)) +
+  geom_density(alpha = .4, bw=1) +
+  geom_vline(xintercept = mean(R12), color = 'pink') + 
+  geom_vline(xintercept = mean(R34, na.rm = TRUE), color = 'lightblue') +
+  scale_fill_discrete(labels = c('1 & 2', '3 & 4')) + 
+  scale_color_discrete(labels = c('1 & 2', '3 & 4'))
+
+rm(rd, R12, R34)
+```
+
+We can visually see that scores in Rounds 3 and 4 appear to be lower than in Rounds 1 and 2. (We also see that the distributions are slightly left skewed, as mentioned earlier). We will run a Kolmogorov-Smirnov Test on the distributions to see if they are statistically different from each other. 
