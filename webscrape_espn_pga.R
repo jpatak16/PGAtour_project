@@ -22,7 +22,7 @@ progress_bar = txtProgressBar(min=0, max=length(ids), style = 3, char="=")
 
 scrape_espn_pga = function(id){
   #create empty df with the column that we want
-  all_tourney = data.frame(position = NA, player = NA, score = NA, cut=NA, withdraw=NA, R1 = NA, R2 = NA, R3= NA, R4=NA, R5 = NA,
+  all_tourney = data.frame(position = NA, player = NA, score = NA, cut=NA, withdraw=NA, dq = NA, R1 = NA, R2 = NA, R3= NA, R4=NA, R5 = NA,
                          total = NA, earnings = NA, fedex_points = NA, tournament = NA, start_date = NA, location = NA, course = NA, par = NA, length = NA, fedex_cup_event = NA)[-1,]
   for(i in 1:length(id)){
     #be nice to the server
@@ -53,7 +53,7 @@ scrape_espn_pga = function(id){
       html_node('.mb4 span') %>%
       html_text()
     if(cancel=='Canceled'){next}
-    if(grepl('In Progress', cancel)==TRUE){next}
+    if(cancel!='Final'){next}
     
     #webscrape the elements we want from the webpage
     x = read_html(url_id) %>%
@@ -114,23 +114,24 @@ scrape_espn_pga = function(id){
     #some listed PGA events are not part of the fedex cup 
     #these include fall series events before the 2013-14 season and some other unofficial pga events in any season
     if(ncol(x)==14){x = add_column(x, fedex_points = 'fs', .after = 10)}
-    colnames(x) = colnames(all_tourney)[-c(4,5,18,19,20)]
+    colnames(x) = colnames(all_tourney)[-c(4,5,6,19,20,21)]
     x$fedex_cup_event = ifelse(x$fedex_points == 'fs', FALSE, TRUE)
     x$fedex_points = ifelse(x$fedex_points == 'fs', NA, x$fedex_points)
     
     #creates new columns using data from our current data frame
     x = add_column(x, cut = ifelse(x$score == 'CUT' | x$score == 'Cut', TRUE, FALSE), .after = 3)
     x = add_column(x, withdraw = ifelse(x$score == 'WD', TRUE, FALSE), .after = 4)
+    x = add_column(x, dq = ifelse(x$score =='DQ', TRUE, FALSE), .after = 5)
     
     #matches column names of single tourney to our main df
-    colnames(x) = colnames(all_tourney)[-c(18, 19)]
+    colnames(x) = colnames(all_tourney)[-c(19, 20)]
     
     #converts columns/data into usable class types
     x$player = as.character(paste(x$player, '', sep=''))
     x$position = as.numeric(str_remove_all(x$position, '[T]'))
     x$score = as.numeric(ifelse(x$score=='E', 0, x$score))
     x$earnings = str_remove_all(x$earnings, '[$]') ; x$earnings = str_remove_all(x$earnings, '[,]')
-    for(col in 6:13){x[[col]] = as.numeric(x[[col]])}
+    for(col in 7:14){x[[col]] = as.numeric(x[[col]])}
     date1 = str_split(x$start_date, ' - ')[[1]][1] ; date2 = str_split(x$start_date, ' - ')[[1]][2] ; date2 = str_split(date2, ', ')[[1]][2]
     x$start_date = mdy(paste(date1, date2, sep = ', '))
     
@@ -206,7 +207,7 @@ data$score = ifelse(data$score==data$total,
 
 #there are only 4 tournaments in our entire data set that have scores in the 5th round
 #we will get rid of them since it is a very small portion of our sample and makes our data tougher to work with
-data = data[,-10]
+data = data[,-11]
 
 #the barracuda championship uses modified scoring that we don't want in our data
 data = data %>% filter(tournament!='Barracuda Championship')
