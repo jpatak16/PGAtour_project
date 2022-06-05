@@ -1,13 +1,19 @@
 ---
 title: "PGA Tour Project"
 author: "Jeremy Patak"
-date: '2022-05-13'
+date: '2022-06-08'
 output: html_document
 ---
-```{r setup}
-pacman::p_load(tidyverse, knitr, kableExtra)
+```{r setup, echo=FALSE}
+pacman::p_load(tidyverse, knitr, kableExtra, lubridate, binsreg)
+
 options(width = 100)
+knitr::opts_chunk$set(echo = FALSE) ## dont show code
+knitr::opts_chunk$set(warning = FALSE) ## Limit warnings
+knitr::opts_chunk$set(message = FALSE) ## Limit warnings
+
 data = read.csv('all_tourn.csv')
+data = data %>% filter(start_date<'2022-06-02')
 ```
 
 # Introduction
@@ -79,9 +85,62 @@ ggplot(rd, aes(x=Scores, fill=Rounds, color = Rounds)) +
   geom_vline(xintercept = mean(R12), color = 'pink') + 
   geom_vline(xintercept = mean(R34, na.rm = TRUE), color = 'lightblue') +
   scale_fill_discrete(labels = c('1 & 2', '3 & 4')) + 
-  scale_color_discrete(labels = c('1 & 2', '3 & 4'))
-
-rm(rd, R12, R34)
+  scale_color_discrete(labels = c('1 & 2', '3 & 4')) + 
+  xlim(c(65,78))
 ```
 
 We can visually see that scores in Rounds 3 and 4 appear to be lower than in Rounds 1 and 2. (We also see that the distributions are slightly left skewed, as mentioned earlier). We will run a Kolmogorov-Smirnov Test on the distributions to see if they are statistically different from each other. 
+
+```{r ks test}
+ks.test(R12, R34, alternative = 't')
+
+rm(R12, R34, rd)
+```
+
+Our p-value is easily significant at the .01 level, so from this test we know that scores in Rounds 3 and 4 are not drawn from the same distribution as scores from Rounds 1 and 2. This confirms that we should make different mean estimates for golfers in the later two rounds than in the first two rounds.
+
+```{r create data set}
+#create a df with one row for each player at each masters tournament
+MT = data2 %>% filter(grepl('Masters', tournament)) %>% 
+  filter(start_date != '2007-04-05') %>%
+  filter(start_date != '2020-11-12') %>%
+  select(c(2, 15, 21, 7:10))
+
+#create our outcome variables
+#we will average R1 and R2 for one y var and average R3 and R4 for the other y var
+MT$R12 = ifelse(is.na(MT$R2), MT$R1, (MT$R1 + MT$R2)/2)
+MT$R34 = ifelse(is.na(MT$R4), MT$R3, (MT$R3 + MT$R4)/2)
+
+#remove round scores
+MT = MT %>% select(1, 2, 3, 8, 9)
+```
+
+We set up our data frame by having one row for each golfer in each Masters Tournament. We will have two outcome variables in each row, one for the mean of the first two rounds one one for the mean of the second two rounds. Remember, all of our scores now are relative to the median golfer in that round, and not the total strokes or relative to par. 
+
+I excluded the first year's (2007) Masters Tournament from our data set because I want to use the year leading up to each Masters as predictors, and my data doesn't include 2006 data, so we'd have no predictors for it. I also excluded the 2020 Masters since that season was heavily affected by COVID and caused cancellation of many tournaments leading up to the Masters, as well as the Masters being delayed 7 months. 
+
+Now we need to create features that can help predict our outcome variables. 
+
+```{r create a predictor}
+#create an empty column to fill with data
+MT$cuts_percent_last_year = NA
+for(i in 1:nrow(MT)){
+  #grab player and start date from each observation
+  name = MT$player[i]
+  date = MT$start_date[i]
+  one_yr_prior = ymd(date) - years(1)
+  #get a list of tournaments the player has played in within a year of masters start date
+  tourns = data2 %>% filter(player == name) %>% filter(start_date < date) %>% filter(start_date > one_yr_prior)
+  #find number of tournaments played in
+  played_in = nrow(tourns)
+  #find number of cuts made
+  cuts_made = tourns %>% filter(!is.na(R1)) %>% filter(cut == 'FALSE') %>% 
+    filter(withdraw == 'FALSE') %>% filter(dq == 'FALSE')
+  more = tourns %>% filter(dq == 'TRUE') %>% filter(!is.na(R3))
+  cuts_made = rbind(cuts_made, more) %>% nrow()
+  #add cuts made percentage to df
+  MT$cuts_percent_last_year[i] = cuts_made / played_in
+}
+```
+
+
