@@ -5,7 +5,7 @@ date: '2022-06-08'
 output: html_document
 ---
 ```{r setup, echo=FALSE}
-pacman::p_load(tidyverse, knitr, kableExtra, lubridate, binsreg)
+pacman::p_load(tidyverse, knitr, kableExtra, lubridate, binsreg, rsample, recipes, parsnip, workflows, tune, glmnet, ranger, parallel, vip)
 
 options(width = 100)
 knitr::opts_chunk$set(echo = FALSE) ## dont show code
@@ -223,10 +223,10 @@ for(i in 1:nrow(MT)){
   W_1m_to_6m = tourns_1m_to_6m %>% filter(position == 1) %>% nrow()
   W_6m_to_1yr = tourns_6m_to_1yr %>% filter(position == 1) %>% nrow()
   #add data to df
-  MT$cuts_percent_last_year[i] = cuts_made_last_year / played_in_last_year
-  MT$cuts_percent_last_month[i] = cuts_made_last_month / played_in_last_month
-  MT$cuts_percent_1m_to_6m[i] = cuts_made_1m_to_6m / played_in_1m_to_6m
-  MT$cuts_percent_6m_to_1yr[i] = cuts_made_6m_to_1yr / played_in_6m_to_1yr
+  MT$cuts_percent_last_year[i] = ifelse(played_in_last_year == 0, 0, cuts_made_last_year / played_in_last_year)
+  MT$cuts_percent_last_month[i] = ifelse(played_in_last_month == 0, 0, cuts_made_last_month / played_in_last_month)
+  MT$cuts_percent_1m_to_6m[i] = ifelse(played_in_1m_to_6m == 0, 0, cuts_made_1m_to_6m / played_in_1m_to_6m)
+  MT$cuts_percent_6m_to_1yr[i] = ifelse(played_in_6m_to_1yr == 0, 0, cuts_made_6m_to_1yr / played_in_6m_to_1yr)
   MT$top10_last_year[i] = T10_last_year
   MT$top10_last_month[i] = T10_last_month
   MT$top10_1m_to_6m[i] = T10_1m_to_6m
@@ -283,4 +283,142 @@ MT[sample(1:nrow(MT)), ] %>% head(n=3) %>%
 ```
 
 # Modeling
+
+To start my modeling process, I will separate my data into testing and training sets. My test set will be observations from the most recent Masters Tournament (2022) and my train set will be all other seasons. I will break down my train set into 6 fold cross validation, stratified by year of the tournament.
+
+```{r test train and CV sets}
+train_MT = MT %>% filter(year!=2022)
+test_MT = MT %>% filter(year==2022)
+
+cv_MT12 = train_MT %>% filter(!is.na(R12)) %>% vfold_cv(v=5, strata = year) #assign observations to cv folds
+cv_MT34 = train_MT %>% filter(!is.na(R34)) %>% vfold_cv(v=5, strata = year) #assign observations to cv folds
+```
+
+I want to find a model and predictors that give a low RSME after being cross-validated because that suggest that the model is not overfit and would make good predictions on data it hasn't seen before. I want to try a few different models: a simple linear regression, an elasticnet regression model, and a non-parametric model, Random Forest. I want to try these models on a couple different sets of predictors: one set will have the predictors I created that account for the past year, and the other set will be the same predictors, but instead of one variable accounting for the last year, the year will be broken down into 3 variables that combine to make up the last year. 
+
+### Simple Linear Regression
+
+```{r slr last_year predictors}
+rec12_yr = recipe(R12 ~ last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, data = MT) %>%
+  step_impute_bag(last_year_masters_finish)
+
+slr = linear_reg() %>%
+  set_engine('lm')
+
+wf1 = workflow() %>% add_model(slr) %>% add_recipe(rec12_yr) %>% fit_resamples(cv_MT12)
+wf1 %>% collect_metrics() %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
+
+rec34_yr = recipe(R34 ~ last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, data = MT) %>%
+  step_impute_bag(last_year_masters_finish)
+
+wf2 = workflow() %>% add_model(slr) %>% add_recipe(rec34_yr) %>% fit_resamples(cv_MT34)
+wf2 %>% collect_metrics() %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
+```
+
+Simple linear regression with our last_year predictors created a model with 2.24 RMSE for the first two rounds and an RMSE of 2.07 for the last two rounds. Lets see if that increases or decreases when we use the more specific time predictors.
+
+```{r slr more specific predictors}
+rec12_m = recipe(R12 ~ . , data = MT) %>%
+  update_role(player, start_date, year, TID, R34, new_role= 'ID') %>%
+  step_rm(cuts_percent_last_year, top10_last_year, wins_last_year) %>%
+  step_impute_bag(last_year_masters_finish)
+
+wf3 = workflow() %>% add_model(slr) %>% add_recipe(rec12_m) %>% fit_resamples(cv_MT12)
+wf3 %>% collect_metrics() %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
+
+rec34_m = recipe(R34 ~ . , data = MT) %>%
+  update_role(player, start_date, year, TID, R12, new_role= 'ID') %>%
+  step_rm(cuts_percent_last_year, top10_last_year, wins_last_year) %>%
+  step_impute_bag(last_year_masters_finish)
+
+wf4 = workflow() %>% add_model(slr) %>% add_recipe(rec34_m) %>% fit_resamples(cv_MT34)
+wf4 %>% collect_metrics() %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
+```
+
+Simple linear regression with our more specific predictors created a model with 2.23 RMSE for the first two rounds and an RMSE of 2.06 for the last two rounds. These are practically the exact same as the results with the last_year predictors.
+
+The last thing I want to try with simple linear regression is to try and find any predictive interaction terms that I can.
+
+```{r slr interactions}
+rec12_yr_i = rec12_yr %>% step_interact(~last_year_masters_finish:all_predictors())
+
+wf5 = workflow() %>% add_model(slr) %>% add_recipe(rec12_yr_i) %>% fit_resamples(cv_MT12)
+wf5 %>% collect_metrics() %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
+
+rec34_yr_i = rec34_yr %>% step_interact(~last_year_masters_finish:all_predictors())
+
+wf6 = workflow() %>% add_model(slr) %>% add_recipe(rec34_yr_i) %>% fit_resamples(cv_MT34)
+wf6 %>% collect_metrics() %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
+```
+
+I interacted the golfers performance in the Masters last year with their performance variables in the tournaments in the year leading up to the Master's. It made a negligibly small difference in the resulting RMSE. (I also tried some transformations of the predictors using log, sqrt, and polynomials, but nothing made any noteworthy differences)
+
+### Elasticnet
+
+I now want to try a regularized linear regression model. I will cross validate the penalty and mixture values.
+
+```{r elasticnet}
+rec12_yr_en = rec12_yr %>% 
+  step_normalize(all_predictors())
+
+en = linear_reg(penalty = tune(), mixture = tune()) %>% set_engine('glmnet')
+
+wf7 = workflow() %>% add_model(en) %>% add_recipe(rec12_yr_en) %>% 
+  tune_grid(cv_MT12,
+            grid = expand_grid(mixture = seq(0, 1, length.out=5), 
+                               penalty = 10^seq(5, -5, length.out = 100)))
+
+wf7 %>% collect_metrics(summarize = TRUE) %>% 
+  ggplot(aes(x = penalty, y = mean, color = factor(mixture))) +
+  geom_point() +
+  scale_x_continuous(breaks = 10^seq(5, -5, length.out = 5), trans = 'log') +
+  scale_y_continuous(limits = c(2.2,2.6)) +
+  labs(title = "Elasticnet model performance",
+       subtitle = 'Predicting Rounds 1 & 2 Masters Scores',
+       x = "Regularization Penalty",
+       y = 'RMSE',
+       color = 'Elasticnet mixture')
+```
+
+After running the elasticnet model, we once again get no meaningful changes to our RMSE. Above you can see a graph of how our RMSE changes when our parameters changed in CV. As you can see, it appears that we are on an asymptote of our RMSE where we can no longer reduce the error. However, before making our predictions, I want to try a non-parametric model to see if it can do any better, so I will use a random forest.
+
+### Random Forest
+
+```{r random forest}
+rf = rand_forest(mtry = tune(), trees = tune(), min_n = tune()) %>%
+  set_engine('ranger', num.threads = detectCores(), importance='impurity') %>%
+  set_mode('regression')
+
+wf8 = workflow() %>% add_model(rf) %>% add_recipe(rec12_m) %>%
+  tune_grid(cv_MT12,
+            grid = expand_grid(mtry = c(1, 2, 3, 4, 5), 
+                               trees = c(100, 200, 500),
+                               min_n = c(5, 10, 20, 35, 50, 75, 100)))
+
+wf8 %>% collect_metrics(metric = 'rmse', summarize = TRUE) %>%
+  filter(.metric=='rmse') %>%
+  ggplot(aes(x = min_n, y = mean, group = factor(mtry), color = factor(mtry))) +
+  geom_line() +
+  geom_point(size = 2.5) +
+  facet_wrap(~trees, nrow = 1) +
+  labs(
+    title = "Random forest model performance",
+    subtitle = "Predicting Rounds 1 & 2 Masters Scores",
+    x = "Min data points per node",
+    y = 'RMSE',
+    color = 'Number of predictors') +
+  scale_x_continuous(breaks = c(10, 20, 35, 50, 75, 100))
+```
+
+It also appears in the random forest model that we have reached the minimum RMSE given our predictors. Using the random forest model we ran, we can find which predictors are most important to predicting the outcome. As we can see, wins in the past year aren't very predictive of score at the Masters.
+
+```{r variable importance}
+workflow() %>% add_model(rf) %>% add_recipe(rec12_m) %>% 
+  finalize_workflow(select_best(wf8, metric = "rmse")) %>% fit(data = train_MT %>% filter(!is.na(R12))) %>%
+  pull_workflow_fit() %>%
+  vip(aesthetics= list(fill='darkgreen'))
+```
+
+Since all of our models produced basically identical results, we will use the simplest one to make predictions with. Our simplest model is our linear model with no interactions and only using the last_year predictors.
+
 
