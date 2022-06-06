@@ -13,7 +13,6 @@ knitr::opts_chunk$set(warning = FALSE) ## Limit warnings
 knitr::opts_chunk$set(message = FALSE) ## Limit warnings
 
 data = read.csv('all_tourn.csv')
-data = data %>% filter(start_date<'2022-06-02')
 ```
 
 # Introduction
@@ -28,8 +27,8 @@ To get my data, I webscraped the PGA Tour leaderboards from [ESPN's website](htt
 
 ```{r table preview}
 #preview table
-set.seed(3)
-data[sample(1:nrow(data)), ] %>% head(n=5)%>%
+set.seed(12)
+data[sample(1:nrow(data)), ] %>% head(n=3) %>%
   kable('html', row.names = FALSE) %>% kable_styling('striped') %>% scroll_box(width = '100%')
 ```
 
@@ -141,6 +140,147 @@ for(i in 1:nrow(MT)){
   #add cuts made percentage to df
   MT$cuts_percent_last_year[i] = cuts_made / played_in
 }
+
+rm(more, tourns, cuts_made, date, i, name, one_yr_prior, played_in)
 ```
 
+I first wanted to see if making cuts in tournaments in the year leading up to the Masters is related to Masters score. I create two binned scatter plots; the x-axis is a created feature representing the percentage of time a golfer makes the cut in tournaments he played in during the year prior to the Masters. The y-axis is score in the first two or last two rounds of the Masters. 
+
+```{r plot cuts vs master score, out.width='50%'}
+par(mar = c(4, 4, .1, .1))
+
+a = binsreg(MT$R12, MT$cuts_percent_last_year)
+b = binsreg(MT$R34, MT$cuts_percent_last_year)
+
+rm(a,b)
+```
+
+As you can see, there is a clear trend showing that as a golfer makes more cuts, their score in the Masters decreases. I will use this feature when making predictions, and break it down into more specific time periods: the month prior, 1 months to 6 months prior, and 6 months to 1 year prior. 
+
+Along with cuts made, I want to use top-10 finishes and tournament wins in the prior year as predictors for Masters round score.
+
+```{r create many predictors}
+#create column for desired features
+MT$cuts_percent_last_month = NA
+MT$cuts_percent_1m_to_6m = NA
+MT$cuts_percent_6m_to_1yr = NA
+MT$top10_last_year = NA
+MT$top10_last_month = NA
+MT$top10_1m_to_6m = NA
+MT$top10_6m_to_1yr = NA
+MT$wins_last_year = NA
+MT$wins_last_month = NA
+MT$wins_1m_to_6m = NA
+MT$wins_6m_to_1yr = NA
+
+#fill empty feature columns
+for(i in 1:nrow(MT)){
+  #grab player and start date from each observation
+  name = MT$player[i]
+  date = MT$start_date[i]
+  #grab dates relative to start date of observation
+  one_yr_prior = ymd(date) - years(1)
+  one_month_prior = ymd(date) - months(1)
+  six_month_prior = ymd(date) - months(6)
+  #get a list of tournaments the player has played in within the specified time periods
+  tourns_last_year = data2 %>% filter(player == name) %>% filter(start_date < date) %>% filter(start_date >= one_yr_prior)
+  tourns_last_month = data2 %>% filter(player == name) %>% filter(start_date < date) %>% filter(start_date >= one_month_prior)
+  tourns_1m_to_6m = data2 %>% filter(player == name) %>% filter(start_date < one_month_prior) %>% filter(start_date >= six_month_prior)
+  tourns_6m_to_1yr = data2 %>% filter(player == name) %>% filter(start_date < six_month_prior) %>% filter(start_date >= one_yr_prior)
+  #find number of tournaments played in for the given time period
+  played_in_last_year = nrow(tourns_last_year)
+  played_in_last_month = nrow(tourns_last_month)
+  played_in_1m_to_6m = nrow(tourns_1m_to_6m)
+  played_in_6m_to_1yr = nrow(tourns_6m_to_1yr)
+  #find number of cuts made
+  cuts_made_last_year = tourns_last_year %>% filter(!is.na(R1)) %>% filter(cut == 'FALSE') %>% 
+    filter(withdraw == 'FALSE') %>% filter(dq == 'FALSE')
+  more_last_year = tourns_last_year %>% filter(dq == 'TRUE') %>% filter(!is.na(R3))
+  cuts_made_last_year = rbind(cuts_made_last_year, more_last_year) %>% nrow()
+  
+  cuts_made_last_month = tourns_last_month %>% filter(!is.na(R1)) %>% filter(cut == 'FALSE') %>% 
+    filter(withdraw == 'FALSE') %>% filter(dq == 'FALSE')
+  more_last_month = tourns_last_month %>% filter(dq == 'TRUE') %>% filter(!is.na(R3))
+  cuts_made_last_month = rbind(cuts_made_last_month, more_last_month) %>% nrow()
+  
+  cuts_made_1m_to_6m = tourns_1m_to_6m %>% filter(!is.na(R1)) %>% filter(cut == 'FALSE') %>% 
+    filter(withdraw == 'FALSE') %>% filter(dq == 'FALSE')
+  more_1m_to_6m = tourns_1m_to_6m %>% filter(dq == 'TRUE') %>% filter(!is.na(R3))
+  cuts_made_1m_to_6m = rbind(cuts_made_1m_to_6m, more_1m_to_6m) %>% nrow()
+  
+  cuts_made_6m_to_1yr = tourns_6m_to_1yr %>% filter(!is.na(R1)) %>% filter(cut == 'FALSE') %>% 
+    filter(withdraw == 'FALSE') %>% filter(dq == 'FALSE')
+  more_6m_to_1yr = tourns_6m_to_1yr %>% filter(dq == 'TRUE') %>% filter(!is.na(R3))
+  cuts_made_6m_to_1yr = rbind(cuts_made_6m_to_1yr, more_6m_to_1yr) %>% nrow()
+  #find number of top 10 finishes
+  T10_last_year = tourns_last_year %>% filter(position <= 10) %>% nrow()
+  T10_last_month = tourns_last_month %>% filter(position <= 10) %>% nrow()
+  T10_1m_to_6m = tourns_1m_to_6m %>% filter(position <= 10) %>% nrow()
+  T10_6m_to_1yr = tourns_6m_to_1yr %>% filter(position <= 10) %>% nrow()
+  #find number of wins
+  W_last_year = tourns_last_year %>% filter(position == 1) %>% nrow()
+  W_last_month = tourns_last_month %>% filter(position == 1) %>% nrow()
+  W_1m_to_6m = tourns_1m_to_6m %>% filter(position == 1) %>% nrow()
+  W_6m_to_1yr = tourns_6m_to_1yr %>% filter(position == 1) %>% nrow()
+  #add data to df
+  MT$cuts_percent_last_year[i] = cuts_made_last_year / played_in_last_year
+  MT$cuts_percent_last_month[i] = cuts_made_last_month / played_in_last_month
+  MT$cuts_percent_1m_to_6m[i] = cuts_made_1m_to_6m / played_in_1m_to_6m
+  MT$cuts_percent_6m_to_1yr[i] = cuts_made_6m_to_1yr / played_in_6m_to_1yr
+  MT$top10_last_year[i] = T10_last_year
+  MT$top10_last_month[i] = T10_last_month
+  MT$top10_1m_to_6m[i] = T10_1m_to_6m
+  MT$top10_6m_to_1yr[i] = T10_6m_to_1yr
+  MT$wins_last_year[i] = W_last_year
+  MT$wins_last_month[i] = W_last_month
+  MT$wins_1m_to_6m[i] = W_1m_to_6m
+  MT$wins_6m_to_1yr[i] = W_6m_to_1yr
+}
+
+rm(more_1m_to_6m, more_6m_to_1yr, more_last_month, more_last_year, tourns_1m_to_6m, tourns_6m_to_1yr, tourns_last_month, tourns_last_year, cuts_made_1m_to_6m, cuts_made_6m_to_1yr, cuts_made_last_month, cuts_made_last_year, date, i, name, one_month_prior, one_yr_prior, played_in_1m_to_6m, played_in_6m_to_1yr, played_in_last_month, played_in_last_year, six_month_prior, T10_1m_to_6m, T10_6m_to_1yr, T10_last_month, T10_last_year, W_1m_to_6m, W_6m_to_1yr, W_last_month, W_last_year)
+```
+
+```{r more plots, out.width='50%'}
+par(mar = c(4, 4, .1, .1))
+
+a = binsreg(MT$R12, MT$top10_last_year)
+b = binsreg(MT$R34, MT$top10_last_year)
+c = binsreg(MT$R12, MT$wins_last_year)
+d = binsreg(MT$R34, MT$wins_last_year)
+
+rm(a,b,c,d)
+```
+
+Here are the binned scatter plots for wins and top-10 finishes. Some are more closely related than others, but in all 4 you can see that as wins or top-10 finishes change, so does average round score. In the wins plots, you can see that having no wins doesn't predict that you will do worse than the median golfer that day (about 0 predicted score for no wins), but as you get more wins throughout the year, your predicted Masters score drops lower and lower. 
+
+The last predictor I want to add is how the golfer did in the Masters the previous year.
+```{r add column for last years masters finish}
+MT = MT %>% mutate(year = year(start_date))
+
+MT2 = data2 %>% filter(grepl('Masters', tournament)) %>% 
+  select(c(2, 15, 21, 7:10, 1)) %>%
+  mutate(year = year(start_date))
+
+MT$last_year_masters_finish = NA
+for(i in 1:nrow(MT)){
+  last_year = MT$year[i] - 1
+  name = MT$player[i]
+  lym = MT2 %>% filter(year==last_year) %>% filter(player==name)
+  MT$last_year_masters_finish[i] = ifelse(nrow(lym)==0, NA, lym$position[1])
+}
+
+MT = MT %>% select(1,2,18,3:5,19,6:17)
+
+rm(MT2, lym, i, last_year, name)
+```
+
+Here is a preview of our data set with the predictors we created. We can now move on to using it to create models.
+
+```{r preview final dataset}
+set.seed(3)
+MT[sample(1:nrow(MT)), ] %>% head(n=3) %>%
+  kable('html', row.names = FALSE) %>% kable_styling('striped') %>% scroll_box(width = '100%')
+```
+
+# Modeling
 
