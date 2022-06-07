@@ -726,8 +726,8 @@ betting_results = data.frame(prop = c('Winner', 'Top 10', 'Make Cut', 'Miss Cut'
                                           nrow(best_make_cut_bets %>% filter(M22_make_cut == TRUE)),
                                           nrow(best_miss_cut_bets %>% filter(M22_miss_cut == TRUE)),
                                           NA),
-                             net_profit = c(sum(best_win_bets$result_1u_bet), sum(best_top10_bets$result_1u_bet),
-                                            sum(best_make_cut_bets$result_1u_bet), sum(best_miss_cut_bets$result_1u_bet),
+                             net_profit = c(round(sum(best_win_bets$result_1u_bet),2), round(sum(best_top10_bets$result_1u_bet),2),
+                                            round(sum(best_make_cut_bets$result_1u_bet),2), round(sum(best_miss_cut_bets$result_1u_bet),2),
                                             NA))
 
 betting_results$good_bets_identified[5] = sum(betting_results$good_bets_identified[1:4])
