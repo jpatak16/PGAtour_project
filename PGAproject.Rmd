@@ -298,7 +298,7 @@ I want to find a model and predictors that give a low RSME after being cross-val
 
 ### Simple Linear Regression
 
-```{r slr last_year predictors}
+```{r slr last_year predictors, include=FALSE}
 rec12_yr = recipe(R12 ~ last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, data = MT) %>%
   step_impute_bag(last_year_masters_finish)
 
@@ -317,7 +317,7 @@ wf2 %>% collect_metrics() %>% kable('html', row.names = FALSE) %>% kable_styling
 
 Simple linear regression with our last_year predictors created a model with 2.24 RMSE for the first two rounds and an RMSE of 2.07 for the last two rounds. Lets see if that increases or decreases when we use the more specific time predictors.
 
-```{r slr more specific predictors}
+```{r slr more specific predictors, include=FALSE}
 rec12_m = recipe(R12 ~ . , data = MT) %>%
   update_role(player, start_date, year, TID, R34, new_role= 'ID') %>%
   step_rm(cuts_percent_last_year, top10_last_year, wins_last_year) %>%
@@ -339,7 +339,7 @@ Simple linear regression with our more specific predictors created a model with 
 
 The last thing I want to try with simple linear regression is to try and find any predictive interaction terms that I can.
 
-```{r slr interactions}
+```{r slr interactions, include=FALSE}
 rec12_yr_i = rec12_yr %>% step_interact(~last_year_masters_finish:all_predictors())
 
 wf5 = workflow() %>% add_model(slr) %>% add_recipe(rec12_yr_i) %>% fit_resamples(cv_MT12)
@@ -496,4 +496,85 @@ Masters22_preds[sample(1:nrow(Masters22_preds)), ] %>% head(n=3) %>%
   kable('html', row.names = FALSE) %>% kable_styling('striped')
 ```
 
+```{r clear junk from environment}
+rm(cv_MT, cv_MT12, cv_MT34, en, lm_data_12, lm_data_12_new, lm_data_34, lm_data_34_new, lm12, lm34, R12, R34, rec12_m, rec12_yr, rec12_yr_en, rec12_yr_i, rec34_m, rec34_yr, rec34_yr_en, rec34_yr_i, rf, sd12, sd12_low_count, sd34, sd34_low_count, slr, test_MT, train_MT, wf1, wf2, wf3, wf4, wf5, wf6, wf7, wf8)
+```
+
 # Simulation
+
+I now am going to write a function that uses our created data frame with the round means and standard deviations for each golfer that will run n simulations.
+```{r make simulation function}
+simulate_masters = function(x, n){
+  all_sims = data.frame(sim_num = NA, player = NA, R1 = NA, R2 = NA, score_after_R2 = NA, pos_after_R2 = NA, 
+                          make_cut = NA, R3 = NA, R4 = NA, score_after_R4 = NA, pos_after_R4 = NA, top10 = NA, win = NA)
+  for(i in 1:n){
+    this_sim = data.frame(sim_num = i, player = x$player, R1 = NA, R2 = NA, score_after_R2 = NA, pos_after_R2 = NA, 
+                          make_cut = NA, R3 = NA, R4 = NA, score_after_R4 = NA, pos_after_R4 = NA, top10 = NA, win = NA)
+    for(p in 1:length(x$player)){
+      this_sim[p,3] = rnorm(n=1, mean=x$R12pred[p], sd=x$sd12[p])
+      this_sim[p,4] = rnorm(n=1, mean=x$R12pred[p], sd=x$sd12[p])
+      this_sim[p,5] = this_sim[p,3] + this_sim[p,4]
+    }
+    this_sim = this_sim %>% arrange(score_after_R2)
+    for(p in 1:length(x$player)){
+      this_sim[p,6] = p
+    }
+    this_sim$make_cut = ifelse(this_sim$pos_after_R2 <=52, TRUE, FALSE)
+    num_made_cut = this_sim %>% filter(make_cut==TRUE) %>% nrow()
+    for(p in 1:num_made_cut){
+      name = this_sim$player[p]
+      x2 = x %>% filter(player == name)
+      this_sim[p,8] = rnorm(n=1, mean=x2$R34pred[1], sd=x2$sd34[1])
+      this_sim[p,9] = rnorm(n=1, mean=x2$R34pred[1], sd=x2$sd34[1])
+      this_sim[p,10] = this_sim[p,5] + this_sim[p,8] + this_sim[p,9]
+    }
+    this_sim = this_sim %>% arrange(score_after_R4)
+    for(p in 1:length(x$player)){
+      this_sim[p,11] = p
+    }
+    this_sim$top10 = ifelse(this_sim$pos_after_R4<=10, TRUE, FALSE)
+    this_sim$win = ifelse(this_sim$pos_after_R4==1, TRUE, FALSE)
+    all_sims = rbind(all_sims, this_sim)
+  }
+  return(all_sims[-1,])
+}
+```
+
+```{r run 10000 sims}
+set.seed(4308226) # ran rnorm to pick random seed
+sims = simulate_masters(Masters22_preds, 10000)
+```
+
+```{r summarize results}
+sims_results = data.frame(player = Masters22_preds$player, win_percent = NA, top10_percent = NA, make_cut_percent = NA)
+for(p in 1:length(sims_results$player)){
+  name = sims_results$player[p]
+  sims_p = sims %>% filter(player == name)
+  win_percent = (sims_p %>% filter(win==TRUE) %>% nrow()) / nrow(sims_p)
+  sims_results$win_percent[p] = win_percent
+  top10_percent = (sims_p %>% filter(top10==TRUE) %>% nrow()) / nrow(sims_p)
+  sims_results$top10_percent[p] = top10_percent
+  make_cut_percent = (sims_p %>% filter(make_cut==TRUE) %>% nrow()) / nrow(sims_p)
+  sims_results$make_cut_percent[p] = make_cut_percent
+}
+
+rm(sims_p, make_cut_percent, name, p, top10_percent, win_percent)
+```
+
+After running 10,000 simulations of the 2022 Master's Tournament and summarizing the results, we end up with a data frame that looks like this
+
+```{r preview simulation data}
+sims_results %>% arrange(player) %>% head(n=3) %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
+```
+
+# Results and Conclusions
+
+Still in progress!!!
+
+```{r plot results}
+ggplot(sims_results %>% arrange(-win_percent) %>% head(n=10), aes(x = reorder(player, win_percent), win_percent)) +
+  geom_bar(stat = 'identity', fill='darkgreen') + coord_flip() +
+  xlab('Win Percentage') + ylab('Golfer') +
+  ggtitle('Percent Chance to Win the 2022 Masters Tournament', 
+          subtitle = 'According to 10,000 simulations')
+```
