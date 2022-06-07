@@ -421,4 +421,79 @@ workflow() %>% add_model(rf) %>% add_recipe(rec12_m) %>%
 
 Since all of our models produced basically identical results, we will use the simplest one to make predictions with. Our simplest model is our linear model with no interactions and only using the last_year predictors.
 
+### Make Predictions 
 
+```{r make preds for R12}
+#prep and juice data frame
+lm_data_12 = recipe(R12 ~ 
+                      last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, data = train_MT) %>%
+  step_impute_bag(last_year_masters_finish) %>%
+  prep() %>% juice()
+
+#train lm
+lm12 = lm(R12 ~ last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, lm_data_12)
+
+#prep and juice test data frame
+lm_data_12_new = recipe(R12 ~ 
+                      last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, data = test_MT) %>%
+  step_impute_bag(last_year_masters_finish) %>%
+  prep() %>% juice()
+
+#make df to store predictions
+Masters22_preds = data.frame(player = test_MT$player)
+
+#make predictions on test data frame
+Masters22_preds$R12pred = predict(lm12, newdata=lm_data_12_new)
+
+#find sd for each golfer
+#find all R1 and R2 scores in the past 3 years and put them into 1 list
+R12 = rbind(data2 %>% filter(start_date<'2022-04-07') %>% filter(start_date>'2019-04-01') %>% select(player, R1) %>% rename(R12 = R1), data2 %>% select(player, R2) %>% rename(R12=R2))
+#by golfer, find how many R1 and R2 scores they have, then find the sd of those scores
+sd12 = R12 %>% group_by(player) %>% filter(!is.na(R12)) %>% summarise(count = length(R12), sd12 = sd(R12, na.rm = TRUE))
+#if the golfer has too few of R1 and R2 scores, assign them the mean sd for golfers with too few of scores
+sd12_low_count = sd12 %>% filter(count<6)
+sd12$sd12 = ifelse(sd12$count<6, mean(sd12_low_count$sd12, na.rm=TRUE), sd12$sd12)
+
+Masters22_preds = left_join(Masters22_preds, sd12) %>% select(-count)
+```
+
+```{r make preds for R34}
+#prep and juice data frame
+lm_data_34 = recipe(R34 ~ 
+                      last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, data = train_MT) %>%
+  step_impute_bag(last_year_masters_finish) %>%
+  prep() %>% juice()
+
+#train lm
+lm34 = lm(R34 ~ last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, lm_data_34)
+
+#prep and juice test data frame
+lm_data_34_new = recipe(R34 ~ 
+                      last_year_masters_finish + cuts_percent_last_year + top10_last_year + wins_last_year, data = test_MT) %>%
+  step_impute_bag(last_year_masters_finish) %>%
+  prep() %>% juice()
+
+#make predictions on test data frame
+Masters22_preds$R34pred = predict(lm34, newdata=lm_data_34_new)
+
+#find sd for each golfer
+#find all R1 and R2 scores in the past 3 years and put them into 1 list
+R34 = rbind(data2 %>% filter(start_date<'2022-04-07') %>% filter(start_date>'2019-04-01') %>% select(player, R3) %>% rename(R34 = R3), data2 %>% select(player, R4) %>% rename(R34=R4))
+#by golfer, find how many R1 and R2 scores they have, then find the sd of those scores
+sd34 = R34 %>% group_by(player) %>% filter(!is.na(R34)) %>% summarise(count = length(R34), sd34 = sd(R34, na.rm = TRUE))
+#if the golfer has too few of R1 and R2 scores, assign them the mean sd for golfers with too few of scores
+sd34_low_count = sd34 %>% filter(count<6)
+sd34$sd34 = ifelse(sd34$count<6, mean(sd34_low_count$sd34, na.rm=TRUE), sd34$sd34)
+
+Masters22_preds = left_join(Masters22_preds, sd34) %>% select(-count)
+Masters22_preds$sd34 = ifelse(is.na(Masters22_preds$sd34), mean(sd34_low_count$sd34, na.rm=TRUE), Masters22_preds$sd34)
+```
+
+After predicting the means and calculating the standard deviation for each golfer participating, we end up with a data frame that looks like this that we can use to run simulations.
+
+```{r preview predicted means and sd}
+Masters22_preds[sample(1:nrow(Masters22_preds)), ] %>% head(n=3) %>%
+  kable('html', row.names = FALSE) %>% kable_styling('striped')
+```
+
+# Simulation
