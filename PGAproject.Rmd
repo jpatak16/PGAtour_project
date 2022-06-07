@@ -550,7 +550,7 @@ set.seed(4308226) # ran rnorm to pick random seed
 sims = simulate_masters(Masters22_preds, 10000)
 ```
 
-```{r summarize results}
+```{r summarize sim results}
 sims_results = data.frame(player = Masters22_preds$player, sim_win_percent = NA, sim_top10_percent = NA, 
                           sim_make_cut_percent = NA, sim_miss_cut_percent = NA)
 for(p in 1:length(sims_results$player)){
@@ -716,7 +716,7 @@ best_make_cut_bets$result_1u_bet = ifelse(best_make_cut_bets$M22_make_cut==TRUE,
 best_miss_cut_bets$result_1u_bet = ifelse(best_miss_cut_bets$M22_miss_cut==TRUE, 1/best_miss_cut_bets$bet_miss_cut_prob, -1)
 ```
 
-```{r summarize results}
+```{r summarize betting results}
 betting_results = data.frame(prop = c('Winner', 'Top 10', 'Make Cut', 'Miss Cut', 'Total'), 
                              good_bets_identified = c(nrow(best_win_bets), nrow(best_top10_bets), 
                                                       nrow(best_make_cut_bets), nrow(best_miss_cut_bets),
