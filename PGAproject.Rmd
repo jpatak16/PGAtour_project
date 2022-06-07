@@ -9,7 +9,7 @@ output:
     toc_float: yes
 ---
 ```{r setup, echo=FALSE}
-pacman::p_load(tidyverse, knitr, kableExtra, lubridate, binsreg, rsample, recipes, parsnip, workflows, tune, glmnet, ranger, parallel, vip, rvest)
+pacman::p_load(tidyverse, knitr, kableExtra, lubridate, binsreg, rsample, recipes, parsnip, workflows, tune, glmnet, ranger, parallel, vip, rvest, odds.converter)
 
 options(width = 100)
 knitr::opts_chunk$set(echo = FALSE) ## dont show code
@@ -551,16 +551,18 @@ sims = simulate_masters(Masters22_preds, 10000)
 ```
 
 ```{r summarize results}
-sims_results = data.frame(player = Masters22_preds$player, win_percent = NA, top10_percent = NA, make_cut_percent = NA)
+sims_results = data.frame(player = Masters22_preds$player, sim_win_percent = NA, sim_top10_percent = NA, 
+                          sim_make_cut_percent = NA, sim_miss_cut_percent = NA)
 for(p in 1:length(sims_results$player)){
   name = sims_results$player[p]
   sims_p = sims %>% filter(player == name)
   win_percent = (sims_p %>% filter(win==TRUE) %>% nrow()) / nrow(sims_p)
-  sims_results$win_percent[p] = win_percent
+  sims_results$sim_win_percent[p] = win_percent
   top10_percent = (sims_p %>% filter(top10==TRUE) %>% nrow()) / nrow(sims_p)
-  sims_results$top10_percent[p] = top10_percent
+  sims_results$sim_top10_percent[p] = top10_percent
   make_cut_percent = (sims_p %>% filter(make_cut==TRUE) %>% nrow()) / nrow(sims_p)
-  sims_results$make_cut_percent[p] = make_cut_percent
+  sims_results$sim_make_cut_percent[p] = make_cut_percent
+  sims_results$sim_miss_cut_percent[p] = 1 - sims_results$sim_make_cut_percent[p]
 }
 
 rm(sims_p, make_cut_percent, name, p, top10_percent, win_percent)
@@ -572,29 +574,39 @@ After running 10,000 simulations of the 2022 Master's Tournament and summarizing
 sims_results %>% arrange(player) %>% head(n=3) %>% kable('html', row.names = FALSE) %>% kable_styling('striped')
 ```
 
-# Results and Conclusions
+# Results
 
-Still in progress!!!
+After summarizing the results of our simulations, we can look and see who won, finished top 10, and made or missed the cut most often in our simulations.
 
-```{r plot results, out.width='33%'}
-ggplot(sims_results %>% arrange(-win_percent) %>% head(n=10), aes(x = reorder(player, win_percent), win_percent)) +
+```{r plot results, out.width='50%'}
+ggplot(sims_results %>% arrange(-sim_win_percent) %>% head(n=10), aes(x = reorder(player, sim_win_percent), sim_win_percent)) +
   geom_bar(stat = 'identity', fill='darkgreen') + coord_flip() +
-  xlab('Win Percentage') + ylab('Golfer') +
+  xlab('Win Liklihood') + ylab('Golfer') +
   ggtitle('Liklihood of Winning the 2022 Masters', 
           subtitle = 'According to 10,000 simulations')
 
-ggplot(sims_results %>% arrange(-top10_percent) %>% head(n=20), aes(x = reorder(player, top10_percent), top10_percent)) +
+ggplot(sims_results %>% arrange(-sim_top10_percent) %>% head(n=20), aes(x = reorder(player, sim_top10_percent), sim_top10_percent)) +
   geom_bar(stat = 'identity', fill='yellow', color='darkgreen') + coord_flip() +
-  xlab('Win Percentage') + ylab('Golfer') +
+  xlab('Top10 Liklihood') + ylab('Golfer') +
   ggtitle('Likihood of Finishing Top 10 at the 2022 Masters', 
           subtitle = 'According to 10,000 simulations')
 
-ggplot(sims_results %>% arrange(-make_cut_percent) %>% head(n=20), aes(x = reorder(player, make_cut_percent), make_cut_percent)) +
-  geom_bar(stat = 'identity', fill='darkgreen') + coord_flip() +
-  xlab('Win Percentage') + ylab('Golfer') +
+ggplot(sims_results %>% arrange(-sim_make_cut_percent) %>% head(n=20), aes(x = reorder(player, sim_make_cut_percent), sim_make_cut_percent)) +
+  geom_bar(stat = 'identity', fill='yellow', color='darkgreen') + coord_flip() +
+  xlab('Make Cut Liklihood') + ylab('Golfer') +
   ggtitle('Liklihood of Making the Cut at the 2022 Masters', 
           subtitle = 'According to 10,000 simulations')
+
+ggplot(sims_results %>% arrange(-sim_miss_cut_percent) %>% head(n=10), aes(x = reorder(player, sim_miss_cut_percent), sim_miss_cut_percent)) +
+  geom_bar(stat = 'identity', fill='darkgreen') + coord_flip() +
+  xlab('Miss Cut Liklihood') + ylab('Golfer') +
+  ggtitle('Liklihood of Missing the Cut at the 2022 Masters', 
+          subtitle = 'According to 10,000 simulations')
 ```
+
+We can then collect the betting odds from before the tournament started and find the implied percentage they give each golfer of winning, finishing top 10, and making the cut. If our simulation says they achieve those milestones more often than the betting odds imply they would, then our model says its a good bet to make.
+
+I will collect betting odds from BetUS Sportsbook from the morning the 2022 Masters started (before any golfer teed off).
 
 ```{r collect betting odds}
 odds_url = 'https://flurrysports.org/masters-2022-betting-odds-picks-to-win-make-the-cut-top-5-and-more/'
@@ -641,4 +653,100 @@ odds = left_join(odds, miss_cut_odds)
 
 rm(win_odds, top10_odds, make_cut_odds, miss_cut_odds)
 ```
+
+```{r convert odds to probability}
+odds$bet_win_prob = odds.us2prob(as.numeric(odds$win_odds))
+odds$bet_top10_prob = odds.us2prob(as.numeric(odds$top10_odds))
+odds$bet_make_cut_prob = odds.us2prob(as.numeric(odds$make_cut_odds))
+odds$bet_miss_cut_prob = odds.us2prob(as.numeric(odds$miss_cut_odds))
+betting_probs = odds %>% select(1, 6:9)
+```
+
+```{r retrive actual results from 2022 masters}
+M22_res = data2 %>% filter(start_date=='2022-04-07') %>% mutate(M22_make_cut = ifelse(fedex_points > 0, TRUE, FALSE)) %>%
+  mutate(M22_win = ifelse(position == 1, TRUE, FALSE)) %>% mutate(M22_top10 = ifelse(position<=10, TRUE, FALSE)) %>%
+  select(player, M22_win, M22_top10, M22_make_cut) %>% mutate(M22_miss_cut = ifelse(M22_make_cut==TRUE, FALSE, TRUE))
+```
+
+```{r combine sim betting and actual}
+M22_analysis = left_join(sims_results, betting_probs)
+M22_analysis = left_join(M22_analysis, M22_res)
+
+M22_analysis$win_margin = M22_analysis$sim_win_percent - M22_analysis$bet_win_prob
+M22_analysis$top10_margin = M22_analysis$sim_top10_percent - M22_analysis$bet_top10_prob
+M22_analysis$make_cut_margin = M22_analysis$sim_make_cut_percent - M22_analysis$bet_make_cut_prob
+M22_analysis$miss_cut_margin = M22_analysis$sim_miss_cut_percent - M22_analysis$bet_miss_cut_prob
+```
+
+After comparing the probabilities the simulation gives a golfer to win and the probabilities the betting odds give a golfer to win, we can find the widest margins to find the best and worst bets according to our model. Note that betting odds are not available for every golfer in the field. 
+
+```{r plot sim vs betting probability}
+ggplot(M22_analysis, aes(bet_win_prob, sim_win_percent, color=win_margin)) + 
+  geom_point() + geom_abline(slope = 1, intercept = 0) +
+  scale_color_gradient(low = '#FF0000', high = '#00FF00') +
+  theme(legend.position = 'none') +
+  xlab('Betting Implied Win Probability') + ylab('Simulation Implied Win Probability') +
+  ggtitle('Finding Best Value Bets')
+
+
+```
+
+The black line in this graph is where the probability of winning according to the betting odds and the probability according to our simulations are the exact same. Points above the line represent good value bets according to our model, and points below the line represent bad value bets. You can see that there are more bad value bets than good value, and this holds true in top10 and making or missing the cut.
+
+When identifying the bets we want to make, we will look for the points that are the furthest distance above the line. We will make a data frame of all the bets out model suggest we should make. We can then calculate how many of those bets we win, and what profit we would make on them.
+
+```{r identify best bets}
+best_win_bets = M22_analysis %>% filter(win_margin>0) %>% filter(sim_win_percent>=.01) %>% filter(win_margin>=.01) %>%
+  select(player, bet_win_prob, M22_win)
+
+best_top10_bets = M22_analysis %>% filter(top10_margin>0) %>% filter(sim_top10_percent>=.1) %>% filter(top10_margin>=.04) %>%
+  select(player, bet_top10_prob, M22_top10)
+
+best_make_cut_bets = M22_analysis %>% filter(make_cut_margin>0) %>% filter(sim_make_cut_percent>=.1) %>%
+  filter(make_cut_margin>=.04) %>% select(player, bet_make_cut_prob, M22_make_cut)
+
+best_miss_cut_bets = M22_analysis %>% filter(miss_cut_margin>0) %>% filter(sim_miss_cut_percent>=.1) %>%
+  filter(miss_cut_margin>=.04) %>% select(player, bet_miss_cut_prob, M22_miss_cut)
+```
+
+```{r determine win and profits}
+best_win_bets$result_1u_bet = ifelse(best_win_bets$M22_win==TRUE, 1/best_win_bets$bet_win_prob, -1)
+best_top10_bets$result_1u_bet = ifelse(best_top10_bets$M22_top10==TRUE, 1/best_top10_bets$bet_top10_prob, -1)
+best_make_cut_bets$result_1u_bet = ifelse(best_make_cut_bets$M22_make_cut==TRUE, 1/best_make_cut_bets$bet_make_cut_prob, -1)
+best_miss_cut_bets$result_1u_bet = ifelse(best_miss_cut_bets$M22_miss_cut==TRUE, 1/best_miss_cut_bets$bet_miss_cut_prob, -1)
+```
+
+```{r summarize results}
+betting_results = data.frame(prop = c('Winner', 'Top 10', 'Make Cut', 'Miss Cut', 'Total'), 
+                             good_bets_identified = c(nrow(best_win_bets), nrow(best_top10_bets), 
+                                                      nrow(best_make_cut_bets), nrow(best_miss_cut_bets),
+                                                      NA),
+                             bets_won = c(nrow(best_win_bets %>% filter(M22_win==TRUE)),
+                                          nrow(best_top10_bets %>% filter(M22_top10 == TRUE)),
+                                          nrow(best_make_cut_bets %>% filter(M22_make_cut == TRUE)),
+                                          nrow(best_miss_cut_bets %>% filter(M22_miss_cut == TRUE)),
+                                          NA),
+                             net_profit = c(sum(best_win_bets$result_1u_bet), sum(best_top10_bets$result_1u_bet),
+                                            sum(best_make_cut_bets$result_1u_bet), sum(best_miss_cut_bets$result_1u_bet),
+                                            NA))
+
+betting_results$good_bets_identified[5] = sum(betting_results$good_bets_identified[1:4])
+betting_results$bets_won[5] = sum(betting_results$bets_won[1:4])
+betting_results$net_profit[5] = sum(betting_results$net_profit[1:4])
+
+betting_results %>% kable('html', row.names = FALSE) %>% kable_styling('striped') %>%
+  row_spec(5, bold = T)
+```
+
+As you can see from the table, we found 29 bets to make and won 11 of them. If we bet 1 unit on each bet, we would profit over 17 units (with most of that profit coming from the fact that we correctly identified the winner). You can also see that we took 6 tries at identifying valued Top 10 bets, but missed on all 6. That could be a model deficiency, or just random chance. It's important to note that we only tested these model results on one year of Masters tournaments, so this could be an exceptionally good result, a exceptionally bad result, or an average result of this model. We wouldn't know until we tested more seasons. 
+
+# Conclusions
+
+As you could see above, for the 2022 Masters, we successfully identified some good value bets and ended up making a 17 unit profit on 29 one unit bets. This model cannot be considered successful though unless we test it on more data. 
+
+The impact of this model would primarily be in the sports gambling market. I designed the predictors for the annual Master's tournament, but it could be generalized to other PGA tournaments as well. 
+
+There are future improvements I plan on making. I'd like to collect more data for other predictors. The [PGA Tour Website](https://www.pgatour.com/stats.html) has stats that I'd like to webscrape. These stats account for how good a golfer is at certain areas of his game (ex. driving, putting, etc.). Since the Master's is played on the same course every year, it would make sense that if putting is very predictive of round score in 1 year, then it will also be predictive of round scores in other years. Because of this, I think those stats that break down skills will be useful predictors that could decrease my RMSE when making round score predictions. I will update this file when I implement those changes. 
+
+
 
