@@ -576,11 +576,23 @@ sims_results %>% arrange(player) %>% head(n=3) %>% kable('html', row.names = FAL
 
 Still in progress!!!
 
-```{r plot results}
+```{r plot results, out.width='33%'}
 ggplot(sims_results %>% arrange(-win_percent) %>% head(n=10), aes(x = reorder(player, win_percent), win_percent)) +
   geom_bar(stat = 'identity', fill='darkgreen') + coord_flip() +
   xlab('Win Percentage') + ylab('Golfer') +
-  ggtitle('Percent Chance to Win the 2022 Masters Tournament', 
+  ggtitle('Liklihood of Winning the 2022 Masters', 
+          subtitle = 'According to 10,000 simulations')
+
+ggplot(sims_results %>% arrange(-top10_percent) %>% head(n=20), aes(x = reorder(player, top10_percent), top10_percent)) +
+  geom_bar(stat = 'identity', fill='yellow', color='darkgreen') + coord_flip() +
+  xlab('Win Percentage') + ylab('Golfer') +
+  ggtitle('Likihood of Finishing Top 10 at the 2022 Masters', 
+          subtitle = 'According to 10,000 simulations')
+
+ggplot(sims_results %>% arrange(-make_cut_percent) %>% head(n=20), aes(x = reorder(player, make_cut_percent), make_cut_percent)) +
+  geom_bar(stat = 'identity', fill='darkgreen') + coord_flip() +
+  xlab('Win Percentage') + ylab('Golfer') +
+  ggtitle('Liklihood of Making the Cut at the 2022 Masters', 
           subtitle = 'According to 10,000 simulations')
 ```
 
